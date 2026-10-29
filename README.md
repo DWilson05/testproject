@@ -8,7 +8,7 @@ A robust, serverless RESTful API built using **Azure Functions (Python v2 model)
 
 - **In-Memory Repository:** Uses a volatile Python dictionary structure to handle fast data storage and management without requiring a permanent database for the midterm phase.
 - **Full CRUD Operations:** Supports creating, reading, updating, and deleting burger resources.
-- **API Key Authentication:** Secures endpoints by inspecting the incoming `x-api-key` header against configuration settings.
+- **API Key Authentication:** Secures endpoints by comparing the incoming `x-api-key` header with an API key stored in Azure Key Vault. `DefaultAzureCredential` authenticates the app to the vault.
 - **Robust Error Handling:** Features a custom exception-driven pattern wrapped in a Python decorator (`@handle_exceptions`) to cleanly catch malformed JSON payloads and unexpected server errors, returning proper HTTP status codes (`200`, `201`, `400`, `401`, `404`, `405`, `500`).
 - **Cloud-Ready:** Designed to run locally using Azure Functions Core Tools and Azurite storage emulation, with seamless deployment capability to Microsoft Azure.
 
@@ -29,7 +29,7 @@ A robust, serverless RESTful API built using **Azure Functions (Python v2 model)
 burger-api/
 │
 ├── function_app.py        # Main application logic, routes, and decorators
-├── local.settings.json    # Local environment variables and API keys
+├── local.settings.json    # Local environment variables (not committed)
 ├── requirements.txt       # Python package dependencies
 └── host.json              # Azure Functions host configuration
 ```
@@ -45,7 +45,7 @@ Make sure you have the following installed on your machine:
 - Azure Functions Core Tools (`func`)
 
 ### 1. Configure Local Settings
-Create a file named `local.settings.json` in your project root folder to hold your local environment secrets (be sure to use your own secure placeholder/key):
+Create or update `local.settings.json` in your project root (it is excluded from source control). Do not put the API key itself in this file. Configure the Key Vault URL and the name of the secret that contains the API key:
 
 ```json
 {
@@ -53,10 +53,17 @@ Create a file named `local.settings.json` in your project root folder to hold yo
   "Values": {
     "AzureWebJobsStorage": "UseDevelopmentStorage=true",
     "FUNCTIONS_WORKER_RUNTIME": "python",
-    "API_KEY": "your-secure-api-key-here"
+    "KEY_VAULT_URL": "https://<your-vault-name>.vault.azure.net/",
+    "API_KEY_SECRET_NAME": "<your-secret-name>"
   }
 }
 ```
+
+For local development, sign in with `az login` (or use another credential supported by `DefaultAzureCredential`) and grant that identity permission to read secrets in the vault, such as the **Key Vault Secrets User** role when using Azure RBAC. The API key secret value must be configured in Key Vault.
+
+For Azure deployment, enable a managed identity for the Function App and grant it the same Key Vault secret-read permission. Set `KEY_VAULT_URL` and `API_KEY_SECRET_NAME` as Function App application settings.
+
+The secret is cached in each Functions worker process after its first successful read. Restart the worker after rotating the API key so it fetches the new value. Missing Key Vault configuration or Key Vault access failures are server errors; they are not treated as an invalid caller key.
 
 ### 2. Run the Function Locally
 1. Open your project folder in VS Code.
@@ -70,9 +77,9 @@ Create a file named `local.settings.json` in your project root folder to hold yo
 
 ## API Endpoints & Reference
 
-Every request sent to the API **must** include your API key header:
+Every request sent to the API **must** include the API key value stored in the configured Key Vault secret:
 - **Header Name:** `x-api-key`
-- **Header Value:** `your-secure-api-key-here` (Matching your `local.settings.json`)
+- **Header Value:** The value of the configured Key Vault secret
 
 | HTTP Method | Endpoint | Description | Status Codes |
 | :--- | :--- | :--- | :--- |
@@ -89,7 +96,7 @@ When testing your API using REST clients like Thunder Client or Postman, structu
 
 ### 1. Required Header for All Requests
 In your HTTP client, navigate to the **Headers** tab and include your authentication key:
-- `x-api-key`: `your-secure-api-key-here`
+- `x-api-key`: the value of the configured Key Vault secret
 
 For requests that send data (like `POST` and `PUT`), also include:
 - `Content-Type`: `application/json`

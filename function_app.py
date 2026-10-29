@@ -2,8 +2,11 @@ import json
 import uuid
 import os
 import functools
+import hmac
 import azure.functions as func
 import logging
+from azure.identity import DefaultAzureCredential
+from azure.keyvault.secrets import SecretClient
 
 # Initialize the Azure Function App with anonymous HTTP authentication
 app = func.FunctionApp(http_auth_level=func.AuthLevel.ANONYMOUS)
@@ -40,15 +43,33 @@ def handle_exceptions(func_to_wrap):
             logging.warning("Bad request payload error.")
             return make_response({"error": "Bad Request: Malformed or invalid JSON payload."}, 400)
         except Exception:
-            logging.error("Internal server error.")
+            logging.exception("Internal server error.")
             return make_response({"error": "Internal Server Error."}, 500)
     return wrapper
 
-# Authorizing requests using an API key from the 'x-api-key' header
+# Authorizing requests using an API key stored in Azure Key Vault
+@functools.lru_cache(maxsize=1)
+def get_expected_api_key() -> str:
+    vault_url = os.environ.get("KEY_VAULT_URL")
+    secret_name = os.environ.get("API_KEY_SECRET_NAME")
+    if not vault_url or not secret_name:
+        raise RuntimeError(
+            "KEY_VAULT_URL and API_KEY_SECRET_NAME must be configured."
+        )
+
+    credential = DefaultAzureCredential()
+    secret_client = SecretClient(vault_url=vault_url, credential=credential)
+    secret_value = secret_client.get_secret(secret_name).value
+    if not secret_value:
+        raise RuntimeError("The configured API key secret is empty.")
+    return secret_value
+
+
 def authorize_request(req: func.HttpRequest) -> bool:
-    expected_key = os.environ.get("API_KEY")
     client_key = req.headers.get("x-api-key")
-    return client_key == expected_key
+    if not client_key:
+        return False
+    return hmac.compare_digest(client_key, get_expected_api_key())
 
 # Route for managing burgers with GET, POST, PUT, DELETE methods
 @app.route(route="burgers", methods=["GET", "POST", "PUT", "DELETE"])
@@ -63,6 +84,11 @@ def manage_burgers(req: func.HttpRequest) -> func.HttpResponse:
     burger_id = req.params.get("id")
 
     if method == "GET":
+        if burger_id:
+            burger = burgers_db.get(burger_id)
+            if burger is None:
+                return make_response({"error": "Not Found: Burger ID does not exist."}, 404)
+            return make_response(burger, 200)
         return make_response(list(burgers_db.values()), 200)
 
     elif method == "POST":

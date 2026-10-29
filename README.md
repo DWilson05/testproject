@@ -1,6 +1,6 @@
 # Gourmet Burger Shop REST API
 
-A robust, serverless RESTful API built using **Azure Functions (Python v2 model)** for the Cloud Computing Midterm project. This application manages a gourmet burger inventory entirely in application memory and enforces secure API key authentication via HTTP request headers.
+A robust, serverless RESTful API built using **Azure Functions (Python v2 model)** for the Cloud Computing Midterm project. This application manages a burger inventory entirely in application memory and enforces secure API key authentication via HTTP request headers against an azure key vault.
 
 ---
 
